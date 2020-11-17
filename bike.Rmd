@@ -1,0 +1,602 @@
+---
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: true
+    df_print: paged
+    header-includes: null
+  output: default
+title: "Aluguel de bicicleta nos Estados Unidos"
+author: "Rodolfo Rissetto Terra - Data Scientist"
+date: "11 - 11 - 2020"
+---
+
+# Coleta dos Dados
+
+Aqui segue a coleta de dados do data set.
+
+Podemos observar a tabela a seguir:
+
+Na primeira linha: a dimensão do conjunto de dados, quantidades de observações (linhas) e quantidade de colunas, ou variáveis.
+Na demais linhas : a primeira coluna com os demes de cada viriável, o tipo do caracter da variável, se é numério, númeiro inteiro, string (caracteres) e a demonstração de cada variável dentro do conjunto de dados na terceira coluna.
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Loading Data
+bikes <- read.csv('bikes.csv', sep = ',', header = T, stringsAsFactors = FALSE)
+str(bikes)
+
+```
+
+
+
+Podemos também observar as cinco primeiras linhas de nosso conjunto de dados, usando a função “head(bikes)” e as cinco últimas linhas do nosso conjunto de dados com a utilização da função “tail(bikes)”.
+
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+rbind(head(bikes), tail(bikes))
+
+```
+
+Segue o quadro abaixo com todas as colunas e a quantidade de valores minssing em nosso conjuntos de dados, ou seja, valores que não estão preeenchido com informações, valores faltantes.
+
+Ao analisar o conjunto de dados, podemos perceber que temos quase 100% das informações preenchida, tendo soment dois campos da coluna “dteday” com falta de informação, denvendo ser aterada futuramente para a criação do modelo.
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+rbind(head(bikes), tail(bikes))
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+char.toPOSIXct <-   function(inFrame) {
+  as.POSIXct(strptime(
+    paste(inFrame$dteday, " ", 
+          as.character(inFrame$hr),
+          ":00:00", 
+          sep = ""), 
+    "%Y-%m-%d %H:%M:%S")) }
+
+bikes$dteday <- char.toPOSIXct(bikes)
+sapply(bikes, function(x) sum(is.na(x)))
+
+```
+
+Como o objetivo do problema de negócio é a análise de demanda por biciletas, será realizar o primeiro filtro em nosso conjunto de dados para observarmos somentos os dias em que existiu a quantidade demandada de bicicleta acima de 100 unidades.
+
+Ao realizar a filto somente acima de 100 unidades diárias, reduzimos o nosso conjunto de dados para 10.342 linhas
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+require(dplyr)
+
+bikes <- bikes %>% filter(cnt >100)
+dim(bikes)
+
+
+```
+
+
+# Transformação de Carga
+
+Em primeiro momento separaremos, em conformidade com o objetivo de negócio, baseando no item “1.2. Informações do conjuntos de dados” e “1.3 Informações sobre os atributos” uma seleção de variáveis considerando as mais relevantes para o modelo.
+
+Na transformação de carga iremos realizar a normalização das variáveis numéricas, transformando toda as coluna em uma mesma escala, para que possamos na hora de criar o modelo preditivo, possamos observar um nível de acúrária melhor.
+
+Iremos também criar novas variáveis, para melhor entendimento do conjuntos de dados, afim de evitar possíveis erros em nosso conjuntos. Criaremos a coluna (“isWorking” - dias úteis, “monthCount” - mês e “dayWeek” - dia de semana).
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+cols <- c("dteday", "mnth", "hr", "holiday",
+          "workingday", "weathersit", "temp",
+          "hum", "windspeed", "cnt")
+
+# Criando um subset dos dados
+bikes <- bikes[,cols]
+
+# Transformar o objeto de data
+bikes$dteday <- char.toPOSIXct(bikes)
+
+# Esta linha acima gera dois valores NA
+# Esta linha abaixo corrige
+
+bikes <- na.omit(bikes)
+
+# Normalizar as variaveis preditoras numericas 
+
+cols <- c('temp', 'hum', 'windspeed')
+bikes[,cols] <- scale(bikes[,cols])
+
+str(bikes)
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+rbind(head(bikes), tail(bikes))
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Criar uma nova variável para indicar dia da semana (workday)
+bikes$isWorking <- ifelse(bikes$workingday & !bikes$holiday, 1, 0)
+
+# Adicionar uma coluna com a quantidade de meses, o que vai ajudar a criar o modelo
+month.count <- function(inFrame){
+  Dteday <- strftime(inFrame$dteday, format = "%Y-%m-%dT%H:%M:%S")
+  yearCount <- as.numeric(unlist(lapply(strsplit(
+    Dteday, "-"), 
+    function(x){x[1]}))) - 2011 
+  inFrame$monthCount <- 12 * yearCount + inFrame$mnth
+  inFrame
+}
+
+bikes <- month.count(bikes)
+
+# Criar um fator ordenado para o dia da semana, comecando por segunda-feira
+bikes$dayWeek <- as.factor(weekdays(bikes$dteday))
+
+head(bikes)
+```
+
+
+Podemos observar que na tabela acima que na coluna “dayWeek” está recebendo os dias da semana: de segunda-feira à domingo.
+
+A tabela abaixo a coluna “dayWeek” agora os dias da semana devem estar como valores numéricos.
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+bikes$dayWeek <- as.numeric(ordered(bikes$dayWeek, 
+                                    levels = c("segunda-feira", 
+                                               "terça-feira", 
+                                               "quarta-feira", 
+                                               "quinta-feira", 
+                                               "sexta-feira", 
+                                               "sábado", 
+                                               "domingo")))
+
+
+head(bikes)
+
+```
+
+# Engenharia de Atributos
+
+Adiciona uma variável com valores únicos para o horário do dia em dias de semana e dias de fim de semana. Com isso diferenciamos as horas dos dias de semana, das horas em dias de fim de semana
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+bikes$workTime <- ifelse(bikes$isWorking, bikes$hr, bikes$hr + 24) 
+
+# Transforma os valores de hora na madrugada, quando a demanda por bibicletas é praticamente nula 
+bikes$xformHr <- ifelse(bikes$hr > 4, bikes$hr - 5, bikes$hr + 19)
+
+# Adiciona uma variável com valores únicos para o horário do dia para dias de semana e dias de fim de semana
+# Considerando horas da madrugada
+bikes$xformWorkHr <- ifelse(bikes$isWorking, bikes$xformHr, bikes$xformHr + 24) 
+
+str(bikes)
+
+```
+
+# Análise de Correlação
+Existe diversas técnicas para a análise de correlação entre as variáveis de nosso conjunto de dados. Em nosso modelo utilizaremos apenas duas:
+
+* Pearson - coeficiente usado para medir o grau de relacionamento entre duas variáveis com relação linear;
+
+* Spearman - teste não paramétrico, para medir o grau de relacionamento entre duas variaveis;
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+cols <- c("mnth", "hr", "holiday", "workingday",
+          "weathersit", "temp", "hum", "windspeed",
+          "isWorking", "monthCount", "dayWeek", 
+          "workTime", "xformHr", "cnt")
+
+# Vetor com os métodos de correlação
+
+metodos <- c('pearson','spearman')
+
+# Aplicando os métodos de correlação com a função cor()
+cors <- lapply(metodos, function(method)
+  (cor(bikes[,cols], method = method)))
+
+
+head(cors)
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Preprando o plot
+require(lattice)
+
+plot.cors <- function(x, labs){
+  diag(x) <- 0.0 
+  plot( levelplot(x, 
+                  main = paste("Plot de Correlação utilizando o Método:", labs),
+                  scales = list(x = list(rot = 90), cex = 1.0)) )
+}
+
+# Mapa de Correlação
+Map(plot.cors, cors, metodos)
+```
+
+
+# Análise de Serie Temporal
+
+Neste momente, após a exploraração de nosso conjunto de dados, será iniciado o estudo de “series temporis” em nosso conjuntos de dados. Será anlisado a demanda de bicicletas ao longo do tempo constuindo um time series plot para alguns determinados horários em dias úteis e dias de fim de semana, para que possamos começar a identificar relações e período de alta e baixa demanda de bicicletas.
+
+
+
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+library(ggplot2)
+
+times <- c(7, 9, 12, 15, 18, 20, 22) 
+
+
+# Time Series Plot
+
+tms.plot <- function(times){
+  ggplot(bikes[bikes$workTime == times, ], aes(x = dteday, y = cnt)) +
+    geom_line() +
+    ylab('Número de Bikes') +
+    xlab('Data dia') +
+    labs(title = paste('Demanda de Bikes as ', as.character(times), ':00', sep =''))+
+    theme(text = element_text(size = 20))
+}
+
+lapply(times, tms.plot)
+```
+
+## Analisando BoxPlots
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Convertendo a variável dayWeek para fator ordenado e plotando em ordem de tempo
+fact.conv <- function(inVec){
+  outVec <- as.factor(inVec)
+  levels(outVec) <- c("Segunda", "Terca", "Quarta", 
+                      "Quinta", "Sexta", "Sabado", 
+                      "Domingo")
+  outVec
+}
+
+bikes$dayWeek <- fact.conv(bikes$dayWeek)
+
+# Convertendo a variável isWorking para fator ordenado e plotando em Dia não Útil e Dia Útil
+fact.conv1 <- function(inVec){
+  outVec1 <- as.factor(inVec)
+  levels(outVec1) <- c("Dia não Útil", "Dia Útil")
+  outVec1
+}
+
+bikes$isWorking <- fact.conv1(bikes$isWorking)
+
+
+# Convertendo a variável isWorking para fator ordenado e plotando em Dia não Útil e Dia Útil
+fact.conv2 <- function(inVec){
+  outVec2 <- as.factor(inVec)
+  levels(outVec2) <- c("Primavera", "Verão","Outuno", "Inverso")
+  outVec2
+}
+
+bikes$weathersit <- fact.conv2(bikes$weathersit)
+
+# Demanda de bikes x potenciais variáveis preditoras
+labels <- list("Boxplots - Demanda de Bikes por Hora",
+               "Boxplots - Demanda de Bikes por Estação",
+               "Boxplots - Demanda de Bikes por Dia Útil",
+               "Boxplots - Demanda de Bikes por Dia da Semana")
+
+xAxis <- list("hr", "weathersit", "isWorking", "dayWeek")
+
+# Função para criar os boxplots
+plot.boxes  <- function(X, label){ 
+  ggplot(bikes, aes_string(x = X, y = "cnt", group = X)) + 
+    ylab('Número de Bikes alugadas') +
+    geom_boxplot( ) + 
+    ggtitle(label) +
+    theme(text = element_text(size = 18)) 
+}
+
+Map(plot.boxes, xAxis, labels)
+```
+
+
+## Analisando Density Plots
+
+Visualizando o relacionamento entre as variáveis preditoras e demanda por bicicletas.
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+labels <- c("Demanda de Bikes vs Temperatura",
+            "Demanda de Bikes vs Humidade",
+            "Demanda de Bikes vs Velocidade do Vento",
+            "Demanda de Bikes vs Hora")
+
+xAxis <- c("temp", "hum", "windspeed", "hr")
+
+# Função para os Density Plots
+plot.scatter <- function(X, label){ 
+  ggplot(bikes, aes_string(x = X, y = "cnt")) + 
+    geom_point(aes_string(colour = "cnt"), alpha = 0.1) + 
+    scale_colour_gradient(low = "green", high = "blue") + 
+    geom_smooth(method = "loess") + 
+    ggtitle(label) +
+    theme(text = element_text(size = 20)) 
+}
+
+Map(plot.scatter, xAxis, labels)
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Explorando a interação entre tempo e dia, em dias da semana e fins de semana
+labels <- list("Box plots - Demanda por Bikes as 09:00 para \n dias da semana e fins de semana",
+               "Box plots - Demanda por Bikes as 18:00  para \n dias da semana e fins de semana")
+
+Times <- list(9, 18)
+
+plot.box2 <- function(time, label){ 
+  ggplot(bikes[bikes$hr == time, ], aes(x = isWorking, y = cnt, group = isWorking)) + 
+    geom_boxplot( ) + ggtitle(label) +
+    theme(text = element_text(size = 18)) }
+
+Map(plot.box2, Times, labels)
+
+```
+
+# Feature Selection
+
+A seleção de Atributos, ou o Feature Selection tem como objetivo a simpleficação do modelo, para facilitar sua interpretação, dredução do tempo de treinamento do modelo e melhoria da generalização do modelo, evitando overfitting. Utilizaremos a tecnicas de feaure selection para automitizar a seleção de variáveis com maior potencial para variáveis preditoras. Sendo uma espécia de filtro, que remove do seu dataset as variáveis qwue não serão úteis para a criação do modelo preditivo. Tem como principal objetivo a criação de um modelo preditoco com a maior precisão possível e que seja generalizável. As técnicas de Feaure Selection basicamente calculam o nível de signifiância de cada variável e eliminam aquelas com significância mais baixa.
+
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+dim(bikes)
+any()
+
+```
+
+Criando um modelo para identificar os atributos com maior importância para o modelo preditivo
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+library(randomForest)
+
+Modelo <- randomForest(cnt ~.,
+                       data = bikes,
+                       ntree = 100,
+                       nodesize = 10,
+                       inportance = TRUE)
+
+# Plotando as variáveis por grau de importância
+varImpPlot(Modelo)
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Removendo variáveis colineares
+Modelo <- randomForest(cnt ~ . - mnth
+                       - hr
+                       - workingday
+                       - isWorking
+                       - dayWeek
+                       - xformHr
+                       - workTime
+                       - holiday
+                       - windspeed
+                       - monthCount
+                       - weathersit, 
+                       data = bikes, 
+                       ntree = 100, 
+                       nodesize = 10,
+                       importance = TRUE)
+
+# Removendo variáveis colineares
+varImpPlot(Modelo)
+
+```
+
+# Criando um modelo preditivo
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+# Função para tratar as datas
+set.asPOSIXct <- function(inFrame) { 
+  dteday <- as.POSIXct(
+    as.integer(inFrame$dteday), 
+    origin = "1970-01-01")
+  
+  as.POSIXct(strptime(
+    paste(as.character(dteday), 
+          " ", 
+          as.character(inFrame$hr),
+          ":00:00", 
+          sep = ""), 
+    "%Y-%m-%d %H:%M:%S"))
+}
+
+char.toPOSIXct <-   function(inFrame) {
+  as.POSIXct(strptime(
+    paste(inFrame$dteday, " ", 
+          as.character(inFrame$hr),
+          ":00:00", 
+          sep = ""), 
+    "%Y-%m-%d %H:%M:%S")) }
+```
+
+## Treinamento o modelo
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+
+ model <- randomForest(cnt ~ xformWorkHr + dteday + temp + hum, 
+                      data = bikes,
+                      ntree = 40, 
+                      nodesize = 5)
+print(model)
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+scores <- data.frame(actual = bikes$cnt,
+                     prediction = predict(model, newdata = bikes))
+
+```
+
+## Avaliando o modelo
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+inFrame <- scores[, c("actual", "prediction")]
+refFrame <- bikes
+
+rbind(head(scores), tail(scores))
+
+summary(scores)
+
+
+```
+
+
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+# Criando um dataframe
+inFrame[, c("dteday", "monthCount", "hr", "xformWorkHr")] <- refFrame[, c("dteday", "monthCount", "hr", "xformWorkHr")]
+
+# Nomeando o dataframe
+names(inFrame) <- c("cnt", "predicted", "dteday", "monthCount", "hr", "xformWorkHr")
+
+#  Time series plot mostrando a diferença entre valores reais e valores previstos
+inFrame <- inFrame[order(inFrame$dteday),]
+s <- c(7, 9, 12, 15, 18, 20, 22)
+
+lapply(s, function(s){
+  ggplot() +
+    geom_line(data = inFrame[inFrame$hr == s, ], 
+              aes(x = dteday, y = cnt)) +
+    geom_line(data = inFrame[inFrame$hr == s, ], 
+              aes(x = dteday, y = predicted), color = "red") +
+    ylab("Numero de Bikes") +
+    labs(title = paste("Demanda de Bikes as ",
+                       as.character(s), ":00", spe ="")) +
+    theme(text = element_text(size = 20))
+})
+
+```
+
+Conforme podemos observar a linha preta é exatamento os dados que temos nosso conjuto de dados original.
+
+A linha vermelha demonstra as nossas previsões com o modelo.
+
+
+## Computando os resíduos
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+inFrame <-  mutate(inFrame, resids = predicted - cnt)
+
+# Plotando os resíduos
+ggplot(inFrame, aes(x = resids)) + 
+  xlab('Resíduos') +
+  ylab("Quantidade") +
+  theme_classic() +
+  geom_histogram(binwidth = 1, fill = "white", color = "steelblue")
+
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+# Distribuição os resíduos
+qqnorm(inFrame$resids)
+qqline(inFrame$resids)
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+# Plotando os resíduos com as horas transformadas
+inFrame <- mutate(inFrame, fact.hr = as.factor(hr),
+                  fact.xformWorkHr = as.factor(xformWorkHr))
+
+facts <- c("fact.hr", "fact.xformWorkHr") 
+
+lapply(facts, function(x){ 
+  ggplot(inFrame, aes_string(x = x, y = "resids"), fill = "steelblue") + 
+    geom_boxplot( ) + 
+    ggtitle("Residuos - Demanda de Bikes por Hora - Atual vs Previsto")})
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+head(inFrame)
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+# Mediana dos resíduos por hora
+evalFrame <- inFrame %>%
+  group_by(hr) %>%
+  summarise(medResidByHr = format(round(
+    median(predicted - cnt), 2), 
+    nsmall = 2)) 
+
+# Computando a mediana dos resíduos
+tempFrame <- inFrame %>%
+  group_by(monthCount) %>%
+  summarise(medResid = median(predicted - cnt)) 
+
+summary(tempFrame)
+
+```
+
+```{r  fig.align='center',message=FALSE, warning=FALSE ,include=T,echo=TRUE}
+
+head(evalFrame)
+
+
+```
+
+<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+<img src="logo.png" alt="RodolfoTerra" height="50" /></p>
